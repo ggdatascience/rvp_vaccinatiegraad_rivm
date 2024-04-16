@@ -7,7 +7,7 @@ In het setup R codeblock kan je een de instellingen aanpassen. Onder andere:
 - Het minimum aantal observaties waaronder een waarschuwing wordt afgegeven.
 - de selectie van cohorten, vaccinsoorten en vaccinatiestatussen voor de rapportage.
 
-Het script staat nu ingesteld op Pneumokokken voor Zuigelingen.
+*Het script staat nu ingesteld op Pneumokokken voor Zuigelingen.*
 
 
 > [!IMPORTANT]
