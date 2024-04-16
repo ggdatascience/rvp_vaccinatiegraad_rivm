@@ -1,0 +1,273 @@
+---
+format:
+  html:
+    toc: TRUE
+    toc-location: left
+    toc-title: "Inhoudsopgave"
+    embed-resources: true
+    page-layout: full
+    theme:
+    - cosmo
+editor: visual
+---
+
+```{r, setup, message=FALSE, warning = FALSE, echo=FALSE}
+
+#Markdownscript om rapport RVP vaccinatiegraad per gemeente & PC4 te maken o.b.v. RIVM data.
+
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(leaflet)
+library(sf)
+library(glue)
+library(kableExtra)
+library(ggplot2)
+library(openxlsx)
+
+#NB We kregen de data aangeleverd met in sheet 2023 geen in CELL A1 (itt de sheets van andere jaren waar TOTAAL NEDERLAND  staat) Deze inconsistentie zorgt ervoor dat de rij die initieel voor kolomkoppen wordt gebruikt eentje opschuift t.a.v de andere sheets. Dat maakt het onmogelijk om alles tegelijk in te lezen. Opgelost door zelf iets in A1 van sheet 2023 te zetten.
+
+#### Hier dingen instellen #####
+
+#Bestandsnaam RIVM excelbestand vaccinatiegraad
+bestand = "Vaccgraad_GGD Hart voor Brabant_2021tm2023_origineel.xlsx"
+
+# Y-positie van normlijn in grafiek & de grens waaronder percentage rood wordt in de NL tabel (itt groen)
+waarde_norm = 95
+
+#Welk label de normlijn in de staafdiagram krijgt
+label_norm = "95% \n Norm WHO"
+
+### Instellingen voor kaart ###
+  
+minimum_verbergen = 15 #minder clienten = niet laten zien
+minimum_waarschuwing = 50 #minder clienten = waarschuwing geven
+  
+percentages_in_kaart = TRUE #FALSE: niet exacte percentages laten zien maar categorieen "<90%", "90-94%", ">= 95%".
+  
+#Kleuren en waarden voor de kaartjes. Alles >= de numerieke waarde krijgt die kleur
+#Moet een named numeric vector van 5 elementen zijn.
+#LET OP: wordt genegeerd als percentages_in_kaart = FALSE
+kleuren_vaccinatiegraad = c("#004529" = 95,
+                            "#ADDD8E" = 90,
+                            "#FB6A4A" = 85,
+                            "#A50F15" = 75,
+                            #hieronder op 0 laten staan. alles < het voorgaande
+                            "#67000D" = 0)
+  
+#### Selectie van Cohort, Vaccinsoort en vaccinatiestatus ###
+  
+#LET OP: 
+#- Niet alle combinaties bestaan. Raadpleeg het Excelbestand vh RIVM om te zien wat bestaat.
+#- Advies is om NIET alles tegelijk te selecteren. Het kan, maar dan krijg je een hele drukke staafdiagram & een kaart met 30 lagen.
+  
+#cohorten = c("Zuigelingen","Kleuters","Schoolkinderen","Adolescente_meisjes")
+cohorten = c("Zuigelingen") %>%
+  #wordt gebruikt in dplyr::select(contains()), vandaar de '|'  
+  paste0(collapse = "|")
+
+#vaccinsoort = c("D\\(K\\)TP","Hib","HepB","Pneu","BMR","MenC/ACWY","HPV","Alles")
+##Let op \\ in D(K)TP nodig om haakjes te escapen. 
+vaccinsoort = c("Pneu") %>%
+  paste0(collapse = "|")
+
+#vaccinatietoestand = c("Primaire_serie","Basisimmuun","Volledig_afgesloten","Volledige_deelname","Totaal*")
+vaccinatietoestand = c("Volledig_afgesloten","Primaire_serie","Basisimmuun") %>%
+  paste0(collapse = "|")
+
+
+#Labels worden automatisch gegenereerd. Als vacctoestand_ipv_leeftijd op TRUE staat
+#wordt de vaccinatiestatus in de labels genoemd bv "(Primaire Serie)":
+#Anders de leeftijd bv: "(1 jaar)"
+
+vacctoestand_ipv_leeftijd = TRUE
+
+#Toegevoegde PC4:
+#De data van het RIVM laat alleen postcodes zien waarvoor er data is.
+#Het script filtert polygonen van PC4 zonder data standaard weg.
+#Dit kan er voor zorgen dat er 'gaten' in de kaart vallen. Daar kunnen mensen van in de war raken. Je kan hieronder postcodes zonder RIVM data toevoegen om deze 'gaten'. te dichten. Een 'lege' postcode wordt op dezelfde manier weergeven als een postcode met te weinig data: Grijs & met een melding over lage aantallen.
+
+#Voorbeeld;  5048 in HvB = grotendeels industrieterrein in Tilburg
+# toegevoegde_postcodes <- data.frame("PC4" = c("5048"),
+#                                     "gemeentenaam" = "Tilburg")
+
+
+toegevoegde_postcodes <- data.frame("PC4" = NULL,"gemeentenaam" = NULL)
+
+#Data inlezen
+source("lees_vaccinatiegraad_rivm.R")
+
+
+```
+
+# Vaccinatiegraad kinkhoest onder zuigelingen GGD Hart voor Brabant
+
+In dit document wordt een overzicht gegeven van de vaccinatiegraad voor pneumokokken (Pneu) vaccinatie in regio GGD Hart voor Brabant per postcodegebied en per gemeente voor de jaren 2020, 2021 en 2022. Dit geeft een goede indicatie voor de vaccinatiegraad voor kinkhoest aangezien Pneu vaccinatie zelden apart van de DKTP-Hib-Hep vaccinatie (vaccinatie tegen infectieziekten Difterie, Kinkhoest, Tetanus, Poliomyelitis, Haemophilus influenzae type b-ziekte en Hepatitis B) gegeven wordt.\*
+
+De vaccinatiegraad Pneu per gemeente is eerder gedeeld met het verschijnen van het Rapport ‘Vaccinatiegraad en jaarverslag Rijksvaccinatieprogramma Nederland 2022’ (juni 2023) en is terug te vinden in de eerste laag van de kaart. In de tweede laag van de kaart zijn in aanvulling hierop ook de gegevens op postcodeniveau (PC4) inzichtelijk gemaakt. Deze informatie is bij het RIVM opgevraagd en is bedoeld voor professionals (in Jeugdgezondheidszorg of Infectieziektebestrijding) of beleidsmedewerkers.
+
+Het betreft de vaccinatiegraad (%) voor de Pneu vaccinatie van zuigelingen op leeftijd 1 jaar (primaire serie) en op leeftijd 2 jaar (volledig afgesloten). Het is gebaseerd op basis van op persoon geregistreerde vaccinaties, exclusief anonieme vaccinaties. De vaccinatiegraad is exclusief vaccinaties die later zijn gegeven.
+
+Om herleidbaarheid te voorkomen is ervoor gekozen om postcodegebieden waar de vaccinatiegraad 95% of hoger is te vernoemen als \>95%. Daarnaast wordt de vaccinatiegraad niet weergegeven als het aantal kinderen in het postcodegebied minder dan 15 is en wordt er een waarschuwing gegeven als het minder dan 50 kinderen betreft.
+
+::: callout-note
+\* Op dit moment geeft de vaccinatiegraad voor DKTP-Hib-Hep vaccinatie geen goed beeld van de vaccinatiegraad voor kinkhoest in verband registratieproblemen door de implementatie van de maternale kinkhoest vaccinatie. We verwachten dat deze registratieproblemen met het verschijnen van het jaarverslag Rijksvaccinatieprogramma Nederland 2023 grotendeels opgelost zijn.
+:::
+
+::: {.callout-warning title="Toelichting RIVM"}
+-   De cijfers op postcodeniveau kunnen vanwege het soms kleine aantal kinderen per postcodegebied zeer gevoelig zijn voor fluctuatie. Het is belangrijk hier bij de interpretatie van (schommelingen in) de regionale vaccinatiegraad rekening mee te houden.
+
+-   Het RIVM ontvangt sinds 1 januari 2022 de gegevens van een deel van de vaccinaties anoniem. Dat gebeurt als mensen geen toestemming geven om hun gegevens met het RIVM te delen. Anonieme vaccinaties kunnen niet worden meegeteld voor de vaccinatiegraad, waardoor deze lager wordt gerapporteerd dan hij daadwerkelijk is. Het aantal vaccinaties dat niet kan worden meegeteld, is nu nog vrij klein. Een groot deel van de kinderen heeft namelijk al vóór 2022 de RVP-vaccinaties gehad.
+
+-   Het is belangrijk voorzichtig te zijn bij de interpretatie van verschillen tussen regio's of gemeenten en verschillen tussen jaren binnen eenzelfde regio of gemeente. Dit kunnen daadwerkelijke verschillen zijn maar ze kunnen ook deels veroorzaakt worden door de mate waarin op regionaal niveau informed consent wordt geregistreerd. De mate van informed consent is niet alleen afhankelijk van de bereidheid van gevaccineerden en/of de ouder(s) om toestemming te geven voor gegevensuitwisseling maar ook van de inspanning van de betreffende JGZ-organisatie(s) om toestemming te verkrijgen en verschilt ook per vaccinsoort.
+:::
+
+## Cijfers Nederland
+
+```{r, tabel_nl, message=FALSE, warning = FALSE, echo=FALSE}
+
+#Tabel maken met overzicht nederlandse cijfers
+tabel_nl <- cijfers_nl %>%
+  #% afronden & kleurcoderen o.b.v. waarde_norm
+  mutate(`%` = round(`%`,1) %>% 
+           cell_spec(color = ifelse(`%` >= waarde_norm, "green","red"))) %>%
+  #breed maken per jaar
+  pivot_wider(names_from = jaar,
+              values_from = c(Aantal_clienten,Aantal_clienten_gevaccineerd,`%`)) 
+
+#Headers maken met het jaartal boven de 3 kolommen met verschillende typen cijfers.
+#Named numeric vector in add_header_above() stoppen.
+
+#numeric vector met breedte van headers
+jaarheaders <- c(1,rep(3,length(jaren)))
+#namen aan headers geven
+names(jaarheaders) <- c(" ",jaren)
+
+
+tabel_nl %>% 
+  #kolommen sorteren; vacc,clienten,%
+  select(name, starts_with(c("Aantal_clienten_gevaccineerd",
+                             "Aantal_clienten","%"))) %>%
+  #daarna op jaar sorteren
+  select(name, ends_with(as.character(jaren))) %>% 
+  kableExtra::kable(
+    col.names = c("categorie", rep(c("gevaccineerd","clienten","%"),3)),
+        escape = F,
+        format = "html"
+        ) %>%
+  kable_styling() %>%
+  add_header_above(jaarheaders)
+
+
+
+
+```
+
+```{r, cijfers_nl, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.height=4}
+
+#kleuren voor jaren toewijzen
+jaarkleuren <- c("#FEC80F","#009bd9","#1A2C54")
+names(jaarkleuren) <- jaren
+
+#X positie van het "norm WHO" label is afhankelijk vh aantal categorieen in de grafiek
+# x = n_cat+.5 doet het goed voor weinig categorieeen maar heeft weinig impact bij veel categorieen
+#vice versa voor n_cat*1.1. Beide lijkt goed te werken
+x_pos_norm <- cijfers_nl$name %>% unique() %>% length() * 1.1 + .5
+
+ggplot(data = cijfers_nl) +
+  geom_bar(aes(x = name, y = `%`, fill = factor(jaar)),
+           stat = "identity", position = position_dodge2(reverse = F)
+           ) +
+  scale_fill_manual(name = "jaar",
+                    values = jaarkleuren) +
+  coord_cartesian(ylim = c(0,100),
+                  clip = "off") + 
+  geom_hline(yintercept = waarde_norm) +
+  geom_text(aes(x = x_pos_norm, y = waarde_norm+1, label = label_norm))+
+  geom_text(aes(x = name,
+                y = `%`,
+                fill = factor(jaar),
+                label = `%` %>% round(1),
+                vjust = -.8
+                ),
+            position =  position_dodge(width = .9)
+            ) +
+  ylab("Vaccinatiegraad NL") + 
+  xlab("")+
+  theme_minimal()
+
+```
+
+## Kaart Vaccinatiegraad
+
+```{r, kaart, message=FALSE, warning = FALSE, echo=FALSE}
+
+source("maak_polygon_layer_vaccinatiegraad.r")
+
+centroide = st_centroid(st_union(gemeente_sf))
+
+#Basiskaart aanmaken
+kaart <- leaflet() %>%
+  #addTiles() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = centroide[[1]][1], lat = centroide[[1]][2], zoom = 10)
+
+
+#We willen gemeentepolygonen bovenaan hebben. dataframe kaartlagen sorteren
+kaartlagen <- kaartlagen %>% arrange(desc(niveau))
+
+
+#Loop over alle kaartlagen
+for (i in 1:nrow(kaartlagen)) {
+  
+  #Pak info van de i'de rij in het kaartlagen dataframe
+  temp_kaartlaag <- kaartlagen[i,]
+  
+  #voeg laag toe aan basiskaart
+  kaart <- kaart %>%
+    maak_leaflet_polygon_layer(data = get(temp_kaartlaag$data),
+                               #jaar is altijd het laatste jaar
+                               huidig_jaar = temp_kaartlaag$jaar,
+                               categorie = temp_kaartlaag$categorie,
+                               groepnaam = temp_kaartlaag$groepnaam,
+                               naam_noemer = temp_kaartlaag$naam_noemer,
+                               #functie werkt alleen met 5 elementen
+                               #in kleuren_graad.
+                               #Wordt genegeerd bij !percentages_in_kaart
+                               kleuren_graad = kleuren_vaccinatiegraad,
+                               percentages_in_kaart 
+                               )
+  
+}
+
+#Groepcontrols toevoegen aan kaart
+kaart <- kaart %>%
+    addLayersControl(
+      baseGroups = kaartlagen$groepnaam,
+      options = layersControlOptions(collapsed = FALSE))
+  
+#Legenda maken voor kaart
+
+#Labels voor legenda ophalen
+labels_legenda = kleuren_vaccinatiegraad %>% unname() %>% paste0(">= ",.,"%") 
+
+#Laatste label = lager dan 4e label
+labels_legenda[5] <- labels_legenda[4] %>% str_replace(">=","<")
+
+#Missing label toevoegen
+cohorten_te_weinig <- kaartlagen$naam_noemer %>% unique() %>% paste(collapse = " of<br>")
+  
+labels_legenda[6] <- glue("< {minimum_verbergen} {cohorten_te_weinig}")
+
+#Legenda toevoegen aan kaart
+kaart <- kaart %>% addLegend(colors = kleuren_vaccinatiegraad %>% 
+                               names() %>%
+                               c("grey"),
+                    labels = labels_legenda)
+
+kaart
+```
+
+\
+
+![](images/Logo-GGD-voor-Hartslag-02.jpg){fig-align="right" width="81mm"}
