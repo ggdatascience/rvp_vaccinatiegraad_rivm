@@ -74,7 +74,7 @@ cijfers_nl <- lapply(jaren, function(x){
          #Label v. NL cijfers maken: naam vaccin + cohortnaam + leeftijd/vaccinstatus
          name =  paste(
            #Naam vaccin
-           str_extract(name, glue("(?<={cohorten}_)[:alpha:]*")),
+           str_extract(name, glue("(?<={cohorten}_)[[:alpha:]|\\(|\\)]*"))
            #Cohortnaam
            str_extract(name, glue("{cohorten}")) %>% str_remove("_"),
            #linebreak
@@ -238,7 +238,7 @@ kaartlagen <- kaartlagen %>%
   mutate(
     categorie = as.character(categorie), #van factor naar character
     cohort = str_extract(categorie,cohorten),
-    vaccinsoort = str_extract(categorie,glue("(?<={cohort}_)[:alpha:]*")),
+    vaccinsoort = str_extract(categorie,glue("(?<={cohorten}_)[[:alpha:]|\\(|\\)]*")),
     #o.b.v. de variabele vacctoestand_ipv_leeftijd
     #Wordt een leeftijd of de vaccinatietoestand uit de categorie gehaald
     leeftijd_of_vaccinatietoestand =  case_when(
