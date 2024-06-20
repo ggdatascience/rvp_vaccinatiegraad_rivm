@@ -4,7 +4,7 @@
 #zorgt ervoor dat de rij die initieel voor kolomkoppen wordt gebruikt eentje opschuift
 #t.a.v de andere sheets. Dat maakt het onmogelijk om alles tegelijk in te lezen. 
 #Opgelost door zelf iets in A1 van sheet 2023 te zetten.
-
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 #workbook laden
 wb <- openxlsx::loadWorkbook(bestand)
 #checken welke sheets er zijn
@@ -12,6 +12,14 @@ sheets <- wb %>% openxlsx::sheets()
 
 #Aanname: Alle met een 4 cijfers is een jaar
 jaren <- sheets[str_detect(sheets,"[:digit:]{4}")]
+
+#als aantal_jaren meenemen is ingesteld: 
+#vector jaren inkorten en laatste x jaren overhouden
+if(!is.null(aantal_jaren_meenemen)){
+  
+  jaren <- tail(jaren, aantal_jaren_meenemen)
+  
+}
 
 #DATA NL ophalen
 #Voor iedere sheet met een jaartal: Data NL ophalen. 
@@ -74,7 +82,7 @@ cijfers_nl <- lapply(jaren, function(x){
          #Label v. NL cijfers maken: naam vaccin + cohortnaam + leeftijd/vaccinstatus
          name =  paste(
            #Naam vaccin
-           str_extract(name, glue("(?<={cohorten}_)[[:alpha:]|\\(|\\)]*"))
+           str_extract(name, glue("(?<={cohorten}_)[[:alpha:]|\\(|\\)]*")),
            #Cohortnaam
            str_extract(name, glue("{cohorten}")) %>% str_remove("_"),
            #linebreak
@@ -89,7 +97,7 @@ cijfers_nl <- lapply(jaren, function(x){
 
 #Voor iedere sheet met een jaartal: data per pc4 & gemeente ophalen
 vaccinatiegraad_rivm_ggd <- lapply(jaren, function(x){
-  
+
   df <- openxlsx::read.xlsx(bestand,sheet = x) %>%
     #kolommen X47,X48 en X49 bestaan alleen in 2023. 
     #MenC/ACWY Adolescenten. Verwijderen. 
@@ -150,7 +158,8 @@ jaren <- as.numeric(jaren) - 1
 vaccinatiegraad_gemeente <- vaccinatiegraad_rivm_ggd %>%
   filter(id %>% str_detect("[:alpha:]"))
 
-gemeente_sf <- st_read("shapefiles/cbsgebiedsindelingen2022.gpkg",
+#Shapefile lezen & vaccinatie data aan koppelen
+gemeente_sf <- st_read("../shapefiles/cbsgebiedsindelingen2022.gpkg",
                        layer = "gemeente_gegeneraliseerd",
                        quiet = T) %>%
   select(-id) %>%
@@ -179,24 +188,14 @@ gemeentenamen_pc4 <- vaccinatiegraad_pc4 %>%
 #dataframe met alle mogelijke combinaties pc4/jaar maken
 pc4_jaar_df <- expand.grid(c(gemeentenamen_pc4$id,
                              #Eventueel handmatig toegevoegde postcodes meenemen
-                             toegevoegde_postcodes$PC4),jaren) %>%
+                             toegevoegde_postcodes),jaren) %>%
   #gemeentenaam koppelen
-  left_join(gemeentenamen_pc4, by = c("Var1" = "id"))
+  left_join(gemeentenamen_pc4, by = c("Var1" = "id")) %>%
+  #PC4 5048 nog een gemeentenaam geven
+  mutate(gemeentenaam = ifelse(is.na(gemeentenaam),
+                               "Tilburg",gemeentenaam))
 
-#Als er handmatig postcodes zijn toegevoegd; pas dan ook de gemeentenaam aan.
-if(nrow(toegevoegde_postcodes) > 0){
-  pc4_jaar_df <- pc4_jaar_df %>%
-    left_join(toegevoegde_postcodes, by = c("Var1" = "PC4")) %>%
-    #PC4 5048 nog een gemeentenaam geven
-    mutate(gemeentenaam = ifelse(is.na(gemeentenaam.x), gemeentenaam.y,
-                                 gemeentenaam.x)) %>%
-    select(-c(gemeentenaam.x,gemeentenaam.y))
-    
-}
-
-
-
-#kolomnamen gelijk trekken met vaccinatiegraad_pc4
+#namen gelijk trekken met vaccinatiegraad_pc4
 names(pc4_jaar_df) <- c("id","jaar", "gemeentenaam_2")
 
 #Lege pc4 aan vaccinatiegraaddata koppelen
@@ -210,7 +209,7 @@ vaccinatiegraad_pc4 <- vaccinatiegraad_pc4 %>%
 
 
 #PC4 shapefile inlezen en vaccinatiedata data koppelen  
-pc4_sf <- st_read("shapefiles/PC4.shp",
+pc4_sf <- st_read("../shapefiles/PC4.shp",
                   quiet = T) %>%
   left_join(vaccinatiegraad_pc4, by = c("PC4" = "id")) %>%
   mutate(id = PC4,
@@ -245,8 +244,15 @@ kaartlagen <- kaartlagen %>%
       vacctoestand_ipv_leeftijd ~ str_extract(categorie, vaccinatietoestand) %>%
         str_replace_all("_"," "),
       TRUE ~ str_extract(categorie,"[:digit:]+") %>% paste("jaar")),
+    #vaccinatietoestand ook altijd los meenemen
+    vaccinatietoestand = str_extract(categorie, vaccinatietoestand) %>% 
+      str_replace_all("_"," "),
     naam_noemer = glue("{cohort} ({leeftijd_of_vaccinatietoestand})"),
     cohort = str_remove(cohort,"_"),    #_ in 'adolescente_meisjes' verwijderen
     groepnaam = glue("{vaccinsoort} {cohort} ({leeftijd_of_vaccinatietoestand}) per {niveau} {max(jaren)}"),
     data = case_when(niveau == "PC4" ~ "pc4_sf",
                      niveau == "gemeente" ~ "gemeente_sf"))
+
+if(!jaar_in_kaartlaag) {
+  kaartlagen$groepnaam <- kaartlagen$groepnaam %>% str_remove(" [:digit:]{4}$")
+}
