@@ -55,6 +55,12 @@ sf <- data %>% filter(jaar == huidig_jaar)
 #Popup Labels maken per polygoon
 labels <- lapply(sf$id, function(x){
   
+  titel_popup <- if(is.null(alt_popup_titel)){
+    glue("<h5>Vaccinatiegraad {groepnaam}</h5>") 
+  }else{
+    alt_popup_titel
+  }
+  
   #Subset maken voor specifieke gemeente/pc4
   temp_df = sf %>% filter(id == x)
   
@@ -93,6 +99,25 @@ labels <- lapply(sf$id, function(x){
   #Data uit meerjaren_df halen voor trendlijntje & kleurtjes
   trend_df <- data %>% filter(id == x)
   
+  
+  
+  tabel_header = NULL
+  
+  #labels van jaren aanpassen als er alternatieve jaarnamen zijn toegewezen
+  if(!is.null(names(jaren))){
+    
+    #Het woordgedeelte vd alteratieve namen wordt een header voor de tabel
+    tabel_header <- c(length(jaren),1)
+    
+    names(tabel_header) <-  c(names(jaren) %>% str_remove("[:digit:]{4}") %>% str_trim() %>% unique(), " ")
+    
+    
+    #De kolomkoppen worden het 'jaar' gedeelte vd alternatieve namen
+    nieuwe_jaarlabels <- str_extract(names(jaren),"[:digit:]{4}")
+    trend_df$jaar <- nieuwe_jaarlabels
+  }
+  
+  
   #Trendwaarden als vector opslaan; alles op of hoger dan 95 naar 95.
   if(percentages_in_kaart){
     trendwaarden <- ifelse(trend_df[[percentage]] >= 95, 95,trend_df[[percentage]])
@@ -130,14 +155,15 @@ labels <- lapply(sf$id, function(x){
     kableExtra::kable(escape = F,
                       format = "html") %>%
     kable_minimal() %>%
-    #Plaatje van de trendlijn toevoegen
-    column_spec(4, image = spec_plot(list(trendwaarden), same_lim = T))
-    
+    #Plaatje van de trendlijn toevoegen in kolom na jaarkolommen
+    column_spec(length(jaren) + 1, image = spec_plot(list(trendwaarden), same_lim = T)) %>% 
+    add_header_above(tabel_header) %>% 
+    row_spec(1, extra_css = "white-space: nowrap;") #forceren dat ">= 95" geen linebreak heeft
   #Werkelij de popup samenstellen
   return(
     glue(
       "
-      <h5>Vaccinatiegraad {groepnaam}</h5>
+      {titel_popup}
       {naam}
       {disclaimer}
       {melding}
